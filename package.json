@@ -1,0 +1,13 @@
+{
+  "name": "lucky-mall",
+  "version": "1.0.0",
+  "description": "H5 幸运商城（抽奖商城）前端 + 管理后台",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=16"
+  },
+  "license": "MIT"
+}

@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>我的</title>
+<link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+<div class="topbar">
+  <div class="title">👤 我的</div>
+  <div class="sub" id="logout" style="cursor:pointer">切换账号</div>
+</div>
+
+<div id="profile"></div>
+
+<div class="seg" id="seg">
+  <button data-t="orders" class="active">参与记录</button>
+  <button data-t="codes">我的抽奖码</button>
+  <button data-t="wins">中奖记录</button>
+  <button data-t="bills">账单流水</button>
+  <button data-t="addr">收货地址</button>
+</div>
+
+<div id="panel"></div>
+
+<nav class="tabbar">
+  <a href="/"><span class="ic">🏠</span>首页</a>
+  <a href="/mine.html" class="active"><span class="ic">👤</span>我的</a>
+</nav>
+
+<script src="/js/common.js"></script>
+<script>
+let user = null;
+const panel = document.getElementById('panel');
+
+document.getElementById('logout').onclick = () => {
+  if (confirm('切换/退出当前账号？')) { localStorage.removeItem('lm_uid'); location.href = '/'; }
+};
+
+document.getElementById('seg').addEventListener('click', (e) => {
+  const b = e.target.closest('button'); if (!b) return;
+  [...document.querySelectorAll('#seg button')].forEach(x => x.classList.remove('active'));
+  b.classList.add('active');
+  load(b.dataset.t);
+});
+
+async function load(t) {
+  panel.innerHTML = '<div class="empty"><span class="em">⏳</span>加载中…</div>';
+  try {
+    if (t === 'orders') {
+      const list = await api('/orders?userId=' + user.id);
+      panel.innerHTML = list.length
+        ? `<div class="card" style="padding:14px 0"><ul class="list">${list.map(o => `<li>
+            <div><div style="font-weight:700">${o.productName}</div>
+            <div class="small muted">${o.shares} 份 · ${money(o.amount)} · ${fmtTime(o.createdAt)}</div></div>
+            <div class="tag sale">${o.codes.length} 码</div></li>`).join('')}</ul></div>`
+        : '<div class="empty"><span class="em">🎁</span>暂无参与记录<br><span class="small">去首页选个心仪的商品吧</span></div>';
+    } else if (t === 'codes') {
+      const list = await api('/my/codes?userId=' + user.id);
+      const winCount = list.filter(c => c.isWin).length;
+      panel.innerHTML = list.length
+        ? `<div class="card">
+            <div class="row between" style="margin-bottom:10px">
+              <span style="font-weight:800">共 ${list.length} 个抽奖码</span>
+              ${winCount ? `<span class="tag done">🎉 含 ${winCount} 个中奖码</span>` : ''}
+            </div>
+            <div class="codes">${list.map(c => `<span class="code ${c.isWin ? 'win' : ''}">${c.code}</span>`).join('')}</div>
+          </div>`
+        : '<div class="empty"><span class="em">🎟️</span>暂无抽奖码</div>';
+    } else if (t === 'wins') {
+      const list = await api('/my/wins?userId=' + user.id);
+      panel.innerHTML = list.length
+        ? list.map(w => `<div class="win-banner">
+            <div class="small">🏆 恭喜中奖</div>
+            <div style="font-weight:800;font-size:16px;margin-top:6px">${w.productName}</div>
+            <div class="code" style="display:inline-block;margin-top:8px">${w.winningCode}</div>
+            <div class="small" style="margin-top:8px">${w.logistics ? '📦 ' + w.logistics : '⏳ 等待商家发货'}</div>
+          </div>`).join('')
+        : '<div class="empty"><span class="em">🍀</span>暂无中奖记录<br><span class="small">好运在路上，继续参与吧</span></div>';
+    } else if (t === 'bills') {
+      const list = await api('/my/bills?userId=' + user.id);
+      const inSum = list.filter(b => b.direction === 'in').reduce((s, b) => s + b.amount, 0);
+      const outSum = list.filter(b => b.direction === 'out').reduce((s, b) => s + b.amount, 0);
+      panel.innerHTML = list.length
+        ? `<div class="card" style="margin-bottom:12px;padding:12px 14px">
+            <div class="row between"><span class="small muted">入账</span><span class="small" style="color:#19a974;font-weight:700">+${money(inSum)}</span></div>
+            <div class="row between"><span class="small muted">支出</span><span class="small" style="color:#ff4d4d;font-weight:700">-${money(outSum)}</span></div>
+          </div>
+          <div class="card" style="padding:8px 0"><ul class="list">${list.map(b => `<li>
+            <div>
+              <div style="font-weight:600">${b.remark || billLabel(b.type)}</div>
+              <div class="small muted">${fmtTime(b.createdAt)} · 余额 ${money(b.balance)}</div>
+            </div>
+            <div style="font-weight:800;color:${b.direction === 'in' ? '#19a974' : '#ff4d4d'}">${b.direction === 'in' ? '+' : '-'}${money(b.amount)}</div>
+          </li>`).join('')}</ul></div>`
+        : '<div class="empty"><span class="em">📊</span>暂无账单流水</div>';
+    } else if (t === 'addr') {
+      panel.innerHTML = `<div class="card">
+        <div class="field"><label>收货人姓名</label><input id="addrName" value="${user.name || ''}"></div>
+        <div class="field"><label>收货地址</label><textarea id="addrText" rows="3" placeholder="请填写详细收货地址，中奖后用于发货">${user.address || ''}</textarea></div>
+        <button class="btn" id="saveAddr">保存地址</button>
+        <div class="small muted" style="margin-top:8px;text-align:center">中奖后商家将按此地址发货</div>
+      </div>`;
+      document.getElementById('saveAddr').onclick = async () => {
+        try {
+          user = await api('/users/' + user.id, {
+            method: 'PUT',
+            body: { name: document.getElementById('addrName').value, address: document.getElementById('addrText').value }
+          });
+          toast('地址已保存 ✓');
+        } catch (e) { toast(e.message); }
+      };
+    }
+  } catch (e) { toast(e.message); }
+}
+
+(async function () {
+  try {
+    user = await ensureLogin();
+    const [orders, codes, wins] = await Promise.all([
+      api('/orders?userId=' + user.id),
+      api('/my/codes?userId=' + user.id),
+      api('/my/wins?userId=' + user.id)
+    ]);
+    document.getElementById('profile').innerHTML = `
+      <div class="card" style="margin:12px;padding:0;overflow:hidden">
+        <div style="background:linear-gradient(120deg,#ff4d4d,#ff7a18 55%,#ffc93c);padding:18px;color:#fff;display:flex;align-items:center;gap:14px">
+          <div style="width:52px;height:52px;border-radius:50%;background:rgba(255,255,255,.25);display:flex;align-items:center;justify-content:center;font-size:22px;font-weight:800">
+            ${(user.name || 'U')[0]}
+          </div>
+          <div style="flex:1">
+            <div style="font-size:17px;font-weight:800">${maskName(user.name)}</div>
+            <div class="small" style="opacity:.9;margin-top:2px">${user.phone.replace(/(\d{3})\d{4}(\d{4})/, '$1****$2')}</div>
+          </div>
+          <a href="/recharge.html" style="background:rgba(255,255,255,.22);color:#fff;padding:7px 14px;border-radius:20px;font-size:13px;font-weight:700;text-decoration:none">💰 充值</a>
+        </div>
+        <div class="row between" style="padding:12px 18px;border-top:1px solid var(--line)">
+          <span class="small muted">我的余额</span>
+          <span style="font-size:19px;font-weight:900;color:#ff4d4d">${money(user.balance || 0)}</span>
+        </div>
+        <div class="stats" style="margin:0;box-shadow:none;border-top:1px solid var(--line)">
+          <div><div class="v">${orders.length}</div><div class="k">参与次数</div></div>
+          <div><div class="v">${codes.length}</div><div class="k">抽奖码</div></div>
+          <div><div class="v hl">${wins.length}</div><div class="k">中奖</div></div>
+        </div>
+      </div>`;
+    load('orders');
+  } catch (e) { toast(e.message); }
+})();
+
+function billLabel(t) {
+  return { recharge: '账户充值', order: '参与抽奖', adjust: '后台调整' }[t] || '账单';
+}
+</script>
+</body>
+</html>

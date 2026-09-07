@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>商品详情</title>
+<link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+<div class="topbar">
+  <div class="title">← 商品详情</div>
+  <div class="sub" id="hello"></div>
+</div>
+
+<div id="app"></div>
+
+<nav class="tabbar">
+  <a href="/" class="active"><span class="ic">🏠</span>首页</a>
+  <a href="/mine.html"><span class="ic">👤</span>我的</a>
+</nav>
+
+<script src="/js/common.js"></script>
+<script>
+const id = new URLSearchParams(location.search).get('id');
+(async function () {
+  try {
+    const p = await api('/products/' + id);
+    const pct = p.totalShares ? Math.round(p.soldShares / p.totalShares * 100) : 0;
+
+    document.getElementById('app').innerHTML = `
+      <div class="hero">
+        <div class="emo">${p.image || '🎁'}</div>
+        <div class="h-name">${p.name}</div>
+        <div class="h-price">¥${p.pricePerShare}<span> /份</span></div>
+        <div style="margin-top:10px;position:relative;z-index:2">${statusTag(p.status)}</div>
+        <div class="h-price" style="font-size:13px;font-weight:500;margin-top:10px;opacity:.95">
+          商品总金额 ¥${p.totalAmount}，平分为 ${p.totalShares} 份
+        </div>
+      </div>
+
+      <div class="stats">
+        <div><div class="v">${p.totalShares}</div><div class="k">总份数</div></div>
+        <div><div class="v">${p.soldShares}</div><div class="k">已售</div></div>
+        <div><div class="v hl">${p.remainShares}</div><div class="k">剩余</div></div>
+      </div>
+
+      <div class="card">
+        <div class="row between small muted"><span>参与进度</span><span>${pct}%</span></div>
+        <div class="prog"><i style="width:${pct}%"></i></div>
+      </div>
+
+      <div class="card">
+        <div style="font-weight:800;margin-bottom:8px">📋 商品详情</div>
+        <div class="small" style="line-height:1.8;white-space:pre-wrap;color:#555">${p.detail || '暂无详情'}</div>
+      </div>
+
+      <div class="card">
+        <div style="font-weight:800;margin-bottom:4px">👥 参与记录</div>
+        <ul class="list" id="parts"><li class="muted">加载中…</li></ul>
+      </div>
+
+      <div class="card">
+        <div style="font-weight:800;margin-bottom:8px">🏆 往期中奖记录</div>
+        <div id="winners"></div>
+      </div>
+
+      <div style="padding:6px 12px 18px">
+        ${p.status === '进行中'
+          ? `<a class="btn" href="/pay.html?id=${p.id}">立即参与</a>`
+          : p.status === '待开售'
+          ? `<button class="btn disabled">尚未开售，敬请期待</button>`
+          : `<a class="btn ghost" href="/draw.html?id=${p.id}">查看开奖结果</a>`}
+      </div>`;
+
+    const parts = await api('/products/' + id + '/participants');
+    document.getElementById('parts').innerHTML = parts.length
+      ? parts.slice(0, 20).map(o => `<li>
+          <span>${maskName(o.userName)} 参与了 <b style="color:var(--primary)">${o.shares}</b> 份</span>
+          <span class="small muted">${fmtTime(o.createdAt)}</span></li>`).join('')
+        + (parts.length > 20 ? `<li class="small muted">仅显示最近 20 条，共 ${parts.length} 条</li>` : '')
+      : '<li class="muted">暂无参与记录，快来抢第一份</li>';
+
+    const wins = await api('/products/' + id + '/winners');
+    document.getElementById('winners').innerHTML = wins.length
+      ? wins.map(w => `<div class="win-banner" style="margin:0 0 10px">
+          <div class="small">🏆 中奖抽奖码</div>
+          <div class="code" style="display:inline-block;margin-top:8px">${w.winningCode}</div>
+          <div class="small" style="margin-top:8px">中奖用户 ${maskName(w.winningUserName)}</div>
+          <div class="small" style="opacity:.85">${fmtTime(w.drawnAt)}</div>
+        </div>`).join('')
+      : '<div class="empty"><span class="em">⏳</span>本商品尚未开奖<br>份额售罄后系统自动开奖</div>';
+  } catch (e) { toast(e.message); }
+})();
+</script>
+</body>
+</html>

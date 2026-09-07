@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>开奖公示</title>
+<link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+<div class="topbar">
+  <div class="title">🏆 开奖公示</div>
+  <div class="sub">公平 · 公正 · 公开</div>
+</div>
+<div id="app"></div>
+
+<nav class="tabbar">
+  <a href="/" class="active"><span class="ic">🏠</span>首页</a>
+  <a href="/mine.html"><span class="ic">👤</span>我的</a>
+</nav>
+
+<script src="/js/common.js"></script>
+<script>
+const id = new URLSearchParams(location.search).get('id');
+(async function () {
+  try {
+    const p = await api('/products/' + id);
+    const pct = p.totalShares ? Math.round(p.soldShares / p.totalShares * 100) : 0;
+    let html = `
+      <div class="hero">
+        <div class="emo">${p.image || '🎁'}</div>
+        <div class="h-name">${p.name}</div>
+        <div style="margin-top:10px;position:relative;z-index:2">${statusTag(p.status)}</div>
+      </div>
+      <div class="stats">
+        <div><div class="v">${p.totalShares}</div><div class="k">总份数</div></div>
+        <div><div class="v">${p.soldShares}</div><div class="k">已售</div></div>
+        <div><div class="v hl">${p.remainShares}</div><div class="k">剩余</div></div>
+      </div>
+      <div class="card">
+        <div class="row between small muted"><span>参与进度</span><span>${pct}%</span></div>
+        <div class="prog"><i style="width:${pct}%"></i></div>
+      </div>`;
+
+    if (p.winningCode) {
+      html += `<div class="win-banner">
+        <div class="small">🎉 本期中奖抽奖码</div>
+        <div class="code" style="display:inline-block;font-size:22px;margin-top:10px">${p.winningCode}</div>
+        <div class="small" style="margin-top:12px;font-size:13px">中奖用户：${maskName(p.winningUserName)}</div>
+        <div class="small" style="opacity:.85">开奖时间：${fmtTime(p.drawnAt)}</div>
+        <div class="small" style="margin-top:10px;opacity:.8">系统从全部 ${p.soldShares} 个抽奖码中随机抽取 1 个</div>
+      </div>`;
+      const d = await api('/draws/' + id);
+      if (d && d.logistics) {
+        html += `<div class="card"><div style="font-weight:800;margin-bottom:8px">📦 发货物流</div>
+          <div class="small" style="line-height:1.8;color:#555">${d.logistics}</div></div>`;
+      } else if (d) {
+        html += `<div class="card"><div class="empty" style="padding:20px 0"><span class="em">📦</span>奖品待发货</div></div>`;
+      }
+      html += `<div style="padding:6px 12px 18px"><a class="btn ghost" href="/">去看看其他好物</a></div>`;
+    } else {
+      html += `<div class="card"><div class="empty"><span class="em">⏳</span>
+        份额尚未售罄<br>售罄后系统将<b style="color:var(--primary)">自动开奖</b>并公示中奖用户<br><br>
+        <span class="small">当前进度 ${pct}%，还差 ${p.remainShares} 份</span></div></div>
+        <div style="padding:6px 12px 18px"><a class="btn" href="/pay.html?id=${p.id}">去参与，加速开奖</a></div>`;
+    }
+    document.getElementById('app').innerHTML = html;
+  } catch (e) { toast(e.message); }
+})();
+</script>
+</body>
+</html>

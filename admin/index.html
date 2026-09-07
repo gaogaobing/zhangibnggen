@@ -1,0 +1,533 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>幸运商城 · 管理后台</title>
+<link rel="stylesheet" href="/admin/style.css">
+</head>
+<body>
+
+<div class="login" id="login">
+  <div class="box">
+    <h2>🎉 管理后台登录</h2>
+    <div class="field"><label>管理员密码</label><input id="pwd" type="password" placeholder="默认 admin888"></div>
+    <button class="btn" style="width:100%" id="loginBtn">登录</button>
+    <div class="hint" style="text-align:center;margin-top:10px">演示密码：admin888</div>
+  </div>
+</div>
+
+<div id="app" style="display:none">
+  <div class="top">
+    <h1>🎉 幸运商城 · 管理后台</h1>
+    <div class="right">已登录 · <button id="logout">退出</button></div>
+  </div>
+  <div class="nav" id="nav">
+    <button data-t="home" class="active">首页管理</button>
+    <button data-t="products">商品管理</button>
+    <button data-t="orders">订单管理</button>
+    <button data-t="draw">开奖管理</button>
+    <button data-t="users">用户管理</button>
+    <button data-t="winners">中奖记录</button>
+    <button data-t="recharge">余额充值</button>
+    <button data-t="payees">收款账户</button>
+    <button data-t="stats">数据统计</button>
+  </div>
+  <div class="wrap" id="panel"></div>
+</div>
+
+<script>
+const KEY = () => localStorage.getItem('lm_admin') || '';
+function api(path, opts = {}) {
+  opts.headers = Object.assign({ 'Content-Type': 'application/json', 'x-admin-key': KEY() }, opts.headers || {});
+  if (opts.body && typeof opts.body !== 'string') opts.body = JSON.stringify(opts.body);
+  return fetch('/api' + path, opts).then(r => r.json()).then(j => {
+    if (j.code !== 0) throw new Error(j.msg || '请求失败');
+    return j.data;
+  });
+}
+function money(n) { return '¥' + (n * 1).toFixed(2); }
+function fmtTime(t) { if (!t) return ''; const d = new Date(t); const p = x => String(x).padStart(2, '0'); return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`; }
+function statusTag(s) { return s === '进行中' ? '<span class="tag sale">进行中</span>' : s === '待开售' ? '<span class="tag wait">待开售</span>' : '<span class="tag done">已开奖</span>'; }
+function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
+function toast(m) { const e = document.createElement('div'); e.className = 'toast'; e.textContent = m; document.body.appendChild(e); setTimeout(() => e.remove(), 1600); }
+
+/* 登录 */
+document.getElementById('loginBtn').onclick = () => {
+  const v = document.getElementById('pwd').value;
+  if (v !== 'admin888') return toast('密码错误');
+  localStorage.setItem('lm_admin', v); showApp();
+};
+document.getElementById('logout').onclick = () => { localStorage.removeItem('lm_admin'); location.reload(); };
+if (KEY()) showApp();
+function showApp() { document.getElementById('login').style.display = 'none'; document.getElementById('app').style.display = 'block'; load('home'); }
+
+/* 导航 */
+document.getElementById('nav').addEventListener('click', e => {
+  const b = e.target.closest('button'); if (!b) return;
+  [...document.querySelectorAll('#nav button')].forEach(x => x.classList.remove('active'));
+  b.classList.add('active'); load(b.dataset.t);
+});
+
+const panel = document.getElementById('panel');
+function load(t) {
+  ({ home: loadHome, products: loadProducts, orders: loadOrders, draw: loadDraw, users: loadUsers, winners: loadWinners, recharge: loadRecharge, payees: loadPayees, stats: loadStats }[t])();
+}
+
+/* ===== 首页管理：轮播 + 设置 ===== */
+const BGS = [
+  'linear-gradient(120deg,#ff6b6b,#ff9a44)',
+  'linear-gradient(120deg,#7c5cff,#4facfe)',
+  'linear-gradient(120deg,#11998e,#38ef7d)',
+  'linear-gradient(120deg,#ff6bb0,#c471ed)',
+  'linear-gradient(120deg,#2b5876,#4e4376)',
+  'linear-gradient(120deg,#f7971e,#ffd200)'
+];
+const EMOJIS = ['🎁', '🎉', '👫', '🔥', '💰', '🎊', '⭐', '🎯', '📱', '🎧'];
+
+async function loadHome() {
+  const [banners, settings] = await Promise.all([api('/admin/banners'), api('/admin/settings')]);
+  panel.innerHTML = `
+    <div class="card">
+      <div style="font-weight:700;margin-bottom:6px">⚙️ 首页设置</div>
+      <div class="field"><label>轮播自动播放间隔（毫秒，1000 ~ 20000）</label>
+        <input id="setInterval" type="number" min="1000" max="20000" value="${settings.bannerInterval}"></div>
+      <div class="field"><label>首页公告（留空则不显示）</label>
+        <input id="setNotice" value="${esc(settings.notice)}" placeholder="如：每期必出一位中奖者，公平公正"></div>
+      <label style="font-size:13px"><input type="checkbox" id="setNoticeOn" ${settings.noticeEnabled ? 'checked' : ''}> 在首页显示公告</label>
+      <button class="btn blue" style="margin-top:12px" id="saveSet">保存设置</button>
+    </div>
+
+    <div class="card">
+      <div class="row between" style="margin-bottom:12px">
+        <div style="font-weight:700">🎠 首页轮播（${banners.length} 条）</div>
+        <button class="btn sm" id="addBanner">+ 新增轮播</button>
+      </div>
+      ${banners.length ? `<table><thead><tr><th>预览</th><th>标题 / 副标题</th><th>按钮 / 链接</th><th>排序</th><th>状态</th><th>操作</th></tr></thead><tbody>
+        ${banners.map((b, i) => `<tr>
+          <td><div style="width:64px;height:36px;border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:18px;background:${b.bg}">${b.emoji || '🎁'}</div></td>
+          <td><div style="font-weight:600">${esc(b.title)}</div><div class="small muted">${esc(b.subtitle)}</div></td>
+          <td class="small">${esc(b.btnText) || '—'}<div class="muted">${esc(b.link)}</div></td>
+          <td>
+            <button class="btn sm ghost" ${i === 0 ? 'disabled' : ''} onclick="moveBanner('${b.id}','up')">↑</button>
+            <button class="btn sm ghost" ${i === banners.length - 1 ? 'disabled' : ''} onclick="moveBanner('${b.id}','down')">↓</button>
+          </td>
+          <td>${b.enabled ? '<span class="tag done">启用</span>' : '<span class="tag wait">停用</span>'}</td>
+          <td>
+            <button class="btn sm ghost" onclick="editBanner('${b.id}')">编辑</button>
+            <button class="btn sm ${b.enabled ? '' : 'blue'}" onclick="toggleBanner('${b.id}',${!b.enabled})">${b.enabled ? '停用' : '启用'}</button>
+            <button class="btn sm ghost" onclick="delBanner('${b.id}')">删除</button>
+          </td></tr>`).join('')}
+      </tbody></table>` : '<div class="empty">暂无轮播，点击右上角新增</div>'}
+    </div>`;
+
+  document.getElementById('addBanner').onclick = () => openBannerModal(null);
+  document.getElementById('saveSet').onclick = async () => {
+    try {
+      await api('/admin/settings', {
+        method: 'PUT',
+        body: {
+          bannerInterval: +document.getElementById('setInterval').value,
+          notice: document.getElementById('setNotice').value,
+          noticeEnabled: document.getElementById('setNoticeOn').checked
+        }
+      });
+      toast('设置已保存 ✓'); loadHome();
+    } catch (e) { toast(e.message); }
+  };
+}
+
+function openBannerModal(b) {
+  const m = document.createElement('div'); m.className = 'mask';
+  const defBg = b ? b.bg : BGS[0];
+  m.innerHTML = `<div class="modal"><h3>${b ? '编辑轮播' : '新增轮播'}</h3>
+    <div id="prev" style="height:96px;border-radius:12px;padding:16px;color:#fff;margin-bottom:14px;display:flex;align-items:center;justify-content:space-between;background:${defBg}">
+      <div><div style="font-size:17px;font-weight:800" id="pvT">${esc(b ? b.title : '标题')}</div>
+        <div style="font-size:12px;opacity:.92;margin-top:5px" id="pvS">${esc(b ? b.subtitle : '副标题')}</div>
+        <div style="display:inline-block;margin-top:8px;background:#fff;color:#ff4d4d;font-size:11px;font-weight:700;padding:4px 11px;border-radius:20px" id="pvB">${esc(b ? b.btnText : '按钮')}</div></div>
+      <div style="font-size:44px" id="pvE">${b ? b.emoji : '🎁'}</div>
+    </div>
+    <div class="field"><label>主标题</label><input id="f_title" value="${esc(b ? b.title : '')}"></div>
+    <div class="field"><label>副标题</label><input id="f_sub" value="${esc(b ? b.subtitle : '')}"></div>
+    <div class="field"><label>按钮文案（留空则不显示按钮）</label><input id="f_btn" value="${esc(b ? b.btnText : '')}"></div>
+    <div class="field"><label>点击跳转链接</label><input id="f_link" value="${esc(b ? b.link : '/')}" placeholder="/ 或 /detail.html?id=P1"></div>
+    <div class="field"><label>图标</label><div style="display:flex;gap:6px;flex-wrap:wrap">
+      ${EMOJIS.map(e => `<button type="button" class="emo-btn ${b && b.emoji === e ? 'on' : ''}" data-e="${e}">${e}</button>`).join('')}
+    </div><input id="f_emoji" style="margin-top:6px" value="${esc(b ? b.emoji : '🎁')}"></div>
+    <div class="field"><label>背景（渐变 或 图片地址）</label>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px">
+        ${BGS.map(g => `<button type="button" class="bg-btn ${defBg === g ? 'on' : ''}" data-g="${g}" style="background:${g}"></button>`).join('')}
+      </div>
+      <input id="f_bg" value="${esc(defBg)}">
+      <div class="hint">支持 CSS 渐变，或直接填图片 URL</div>
+    </div>
+    <div class="field"><label>排序值（越小越靠前）</label><input id="f_sort" type="number" value="${b ? b.sort : 99}"></div>
+    <label style="font-size:13px"><input type="checkbox" id="f_on" ${b ? (b.enabled ? 'checked' : '') : 'checked'}> 立即启用</label>
+    <button class="btn" style="margin-top:14px" id="save">保存</button>
+    <button class="btn ghost" style="margin-top:8px;width:100%" onclick="this.closest('.mask').remove()">取消</button>
+  </div>`;
+  document.body.appendChild(m);
+
+  const q = (id) => m.querySelector(id);
+  const bgOf = (v) => /^(https?:)?\/\//.test(v.trim()) ? `url(${v.trim()}) center/cover no-repeat` : v;
+  const update = () => {
+    q('#pvT').textContent = q('#f_title').value || '标题';
+    q('#pvS').textContent = q('#f_sub').value || '副标题';
+    q('#pvB').textContent = q('#f_btn').value || '按钮';
+    q('#pvE').textContent = q('#f_emoji').value || '🎁';
+    q('#prev').style.background = bgOf(q('#f_bg').value);
+    m.querySelectorAll('.bg-btn').forEach(x => x.classList.toggle('on', x.dataset.g === q('#f_bg').value.trim()));
+  };
+  ['#f_title', '#f_sub', '#f_btn', '#f_emoji', '#f_bg'].forEach(id => q(id).addEventListener('input', update));
+  m.querySelectorAll('.bg-btn').forEach(x => x.onclick = () => { q('#f_bg').value = x.dataset.g; update(); });
+  m.querySelectorAll('.emo-btn').forEach(x => x.onclick = () => {
+    q('#f_emoji').value = x.dataset.e;
+    m.querySelectorAll('.emo-btn').forEach(y => y.classList.remove('on'));
+    x.classList.add('on'); update();
+  });
+  update();
+
+  q('#save').onclick = async () => {
+    const body = {
+      title: q('#f_title').value.trim(), subtitle: q('#f_sub').value.trim(),
+      btnText: q('#f_btn').value.trim(), emoji: q('#f_emoji').value.trim(),
+      bg: q('#f_bg').value.trim(), link: q('#f_link').value.trim() || '/',
+      sort: +q('#f_sort').value || 99, enabled: q('#f_on').checked
+    };
+    if (!body.title) return toast('主标题必填');
+    try {
+      if (b) await api('/admin/banners/' + b.id, { method: 'PUT', body });
+      else await api('/admin/banners', { method: 'POST', body });
+      toast('已保存 ✓'); m.remove(); loadHome();
+    } catch (e) { toast(e.message); }
+  };
+}
+
+window.editBanner = async (id) => { const b = (await api('/admin/banners')).find(x => x.id === id); openBannerModal(b); };
+window.toggleBanner = async (id, v) => { await api('/admin/banners/' + id, { method: 'PUT', body: { enabled: v } }); toast('已更新'); loadHome(); };
+window.delBanner = async (id) => { if (!confirm('确认删除该轮播？')) return; await api('/admin/banners/' + id, { method: 'DELETE' }); toast('已删除'); loadHome(); };
+window.moveBanner = async (id, dir) => {
+  try { await api('/admin/banners/' + id + '/move', { method: 'POST', body: { dir } }); loadHome(); }
+  catch (e) { toast(e.message); }
+};
+
+/* ===== 商品管理 ===== */
+async function loadProducts() {
+  const list = await api('/products');
+  panel.innerHTML = `<div class="card"><button class="btn" id="add">+ 新增抽奖商品</button></div>
+    <div class="card"><table><thead><tr><th>商品</th><th>总金额</th><th>总份数</th><th>每份</th><th>已售/剩余</th><th>状态</th><th>操作</th></tr></thead><tbody>
+    ${list.map(p => `<tr>
+      <td>${p.image || ''} ${p.name}</td>
+      <td>${money(p.totalAmount)}</td><td>${p.totalShares}</td><td>${money(p.pricePerShare)}</td>
+      <td>${p.soldShares} / ${p.remainShares}</td><td>${statusTag(p.status)}</td>
+      <td>
+        <button class="btn sm ghost" onclick="editProd('${p.id}')">编辑</button>
+        ${p.status !== '已开奖' ? `<button class="btn sm ${p.onSale ? '' : 'blue'}" onclick="toggleProd('${p.id}')">${p.onSale ? '下架' : '上架'}</button>` : ''}
+        ${p.remainShares === 0 && !p.winningCode ? `<button class="btn sm green" onclick="drawProd('${p.id}')">开奖</button>` : ''}
+        <button class="btn sm ghost" onclick="delProd('${p.id}')">删除</button>
+      </td></tr>`).join('')}
+    </tbody></table></div>`;
+  document.getElementById('add').onclick = () => openProdModal();
+}
+function openProdModal(p) {
+  const m = document.createElement('div'); m.className = 'mask';
+  m.innerHTML = `<div class="modal"><h3>${p ? '编辑商品' : '新增抽奖商品'}</h3>
+    <div class="field"><label>商品名称</label><input id="f_name" value="${p ? p.name : ''}"></div>
+    <div class="field"><label>图标 / 图片（emoji 或图片地址）</label><input id="f_image" value="${p ? p.image : ''}" placeholder="如 📱 或 https://..."></div>
+    <div class="field"><label>商品详情</label><textarea id="f_detail" rows="3">${p ? p.detail : ''}</textarea></div>
+    <div class="field"><label>商品总金额（元）</label><input id="f_amount" type="number" value="${p ? p.totalAmount : ''}"></div>
+    <div class="field"><label>拆分总份数</label><input id="f_shares" type="number" value="${p ? p.totalShares : ''}">
+      <div class="hint" id="calc">每份单价 = 总金额 ÷ 总份数</div></div>
+    <div class="field"><label><input type="checkbox" id="f_on" ${p && p.onSale ? 'checked' : ''}> 立即上架（开售）</label></div>
+    <button class="btn" id="save">保存</button>
+    <button class="btn ghost" style="margin-top:8px;width:100%" onclick="this.closest('.mask').remove()">取消</button>
+  </div>`;
+  document.body.appendChild(m);
+  const amt = m.querySelector('#f_amount'), sh = m.querySelector('#f_shares'), calc = m.querySelector('#calc');
+  const up = () => { const a = +amt.value, s = +sh.value; calc.textContent = (a && s) ? `每份单价 = ${money(a / s)}` : '每份单价 = 总金额 ÷ 总份数'; };
+  amt.oninput = up; sh.oninput = up; up();
+  m.querySelector('#save').onclick = async () => {
+    const body = { name: m.querySelector('#f_name').value, image: m.querySelector('#f_image').value, detail: m.querySelector('#f_detail').value,
+      totalAmount: +amt.value, totalShares: +sh.value, onSale: m.querySelector('#f_on').checked };
+    if (!body.name || !body.totalAmount || !body.totalShares) return toast('请填写完整');
+    try {
+      if (p) await api('/admin/products/' + p.id, { method: 'PUT', body });
+      else await api('/admin/products', { method: 'POST', body });
+      toast('已保存'); m.remove(); loadProducts();
+    } catch (e) { toast(e.message); }
+  };
+}
+window.editProd = async (id) => { const p = await api('/products/' + id); openProdModal(p); };
+window.toggleProd = async (id) => { await api('/admin/products/' + id + '/toggle', { method: 'POST' }); toast('已更新'); loadProducts(); };
+window.drawProd = async (id) => { if (!confirm('确认对该商品触发开奖？')) return; try { const d = await api('/admin/products/' + id + '/draw', { method: 'POST' }); toast('开奖完成，中奖码 ' + d.winningCode); loadProducts(); } catch (e) { toast(e.message); } };
+window.delProd = async (id) => {
+  if (!confirm('确认删除该商品？\n（已有订单的商品不可删除，可改为下架）')) return;
+  try { await api('/admin/products/' + id, { method: 'DELETE' }); toast('已删除'); loadProducts(); }
+  catch (e) { toast(e.message); }
+};
+
+/* ===== 订单管理 ===== */
+async function loadOrders() {
+  const list = await api('/admin/orders');
+  panel.innerHTML = `<div class="card"><table><thead><tr><th>订单号</th><th>商品</th><th>用户</th><th>份数</th><th>金额</th><th>抽奖码</th><th>时间</th></tr></thead><tbody>
+    ${list.map(o => `<tr><td>${o.id}</td><td>${o.productName}</td><td>${o.userName}</td><td>${o.shares}</td><td>${money(o.amount)}</td>
+      <td class="codes-cell">${o.codes.join(', ')}</td><td class="small">${fmtTime(o.createdAt)}</td></tr>`).join('')}
+    </tbody></table>${list.length ? '' : '<div class="empty">暂无订单</div>'}</div>`;
+}
+
+/* ===== 开奖管理 ===== */
+async function loadDraw() {
+  const list = await api('/products');
+  const draws = await api('/admin/winners');
+  const drawMap = {}; draws.forEach(d => drawMap[d.productId] = d);
+  panel.innerHTML = `<div class="card"><div style="font-weight:600;margin-bottom:8px">商品份额监控（售罄自动开奖）</div><table>
+    <thead><tr><th>商品</th><th>进度</th><th>已售/总</th><th>状态</th><th>操作</th></tr></thead><tbody>
+    ${list.map(p => { const pct = Math.round(p.soldShares / p.totalShares * 100); return `<tr>
+      <td>${p.image || ''} ${p.name}</td>
+      <td><div class="progress"><i style="width:${pct}%"></i></div></td>
+      <td>${p.soldShares}/${p.totalShares}</td><td>${statusTag(p.status)}</td>
+      <td>${p.remainShares === 0 && !p.winningCode ? `<button class="btn sm green" onclick="drawProd('${p.id}')">触发开奖</button>` : (p.winningCode ? '<span class="small muted">已开奖</span>' : '<span class="small muted">进行中</span>')}</td>
+    </tr>`; }).join('')}
+    </tbody></table></div>
+    <div class="card"><div style="font-weight:600;margin-bottom:8px">中奖记录 & 发货物流</div>
+    ${draws.length ? draws.map(d => `<div class="card" style="margin:0 0 10px">
+      <div class="row between"><div><b>${d.productName}</b> · 中奖码 <span class="tag done">${d.winningCode}</span></div>
+      <div class="small muted">${fmtTime(d.drawnAt)}</div></div>
+      <div class="small" style="margin:6px 0">中奖用户：${d.winningUserName}</div>
+      ${d.shipped ? `<div class="small">📦 ${d.logistics}</div>` : `<div class="field" style="margin-top:8px"><input id="ship_${d.id}" placeholder="录入物流单号/发货信息"><button class="btn sm" style="margin-top:6px" onclick="ship('${d.id}')">确认发货</button></div>`}
+    </div>`).join('') : '<div class="empty">暂无中奖记录</div>'}
+    </div>`;
+}
+window.ship = async (id) => {
+  const v = document.getElementById('ship_' + id).value;
+  if (!v) return toast('请填写物流信息');
+  await api('/admin/draws/' + id + '/ship', { method: 'POST', body: { logistics: v } });
+  toast('已发货'); loadDraw();
+};
+
+/* ===== 用户管理 ===== */
+async function loadUsers() {
+  const list = await api('/admin/users');
+  panel.innerHTML = `<div class="card"><table><thead><tr><th>ID</th><th>昵称</th><th>手机号</th><th>收货地址</th><th>注册时间</th></tr></thead><tbody>
+    ${list.map(u => `<tr><td>${u.id}</td><td>${u.name}</td><td>${u.phone}</td><td class="small">${u.address || '—'}</td><td class="small">${fmtTime(u.createdAt)}</td></tr>`).join('')}
+    </tbody></table>${list.length ? '' : '<div class="empty">暂无用户</div>'}</div>`;
+}
+
+/* ===== 中奖记录 ===== */
+async function loadWinners() {
+  const list = await api('/admin/winners');
+  panel.innerHTML = `<div class="card"><table><thead><tr><th>商品</th><th>中奖码</th><th>中奖用户</th><th>开奖时间</th><th>物流</th></tr></thead><tbody>
+    ${list.map(d => `<tr><td>${d.productName}</td><td class="tag done">${d.winningCode}</td><td>${d.winningUserName}</td><td class="small">${fmtTime(d.drawnAt)}</td><td class="small">${d.shipped ? d.logistics : '未发货'}</td></tr>`).join('')}
+    </tbody></table>${list.length ? '' : '<div class="empty">暂无中奖记录</div>'}</div>`;
+}
+
+/* ===== 余额充值管理 ===== */
+async function loadRecharge() {
+  const [stats, plans, recharges, users] = await Promise.all([
+    api('/admin/recharge/stats'), api('/admin/recharge/plans'),
+    api('/admin/recharges'), api('/admin/users')
+  ]);
+  panel.innerHTML = `
+    <div class="grid">
+      <div class="stat"><div class="n">${stats.rechargeOrderCount}</div><div class="l">充值笔数</div></div>
+      <div class="stat"><div class="n" style="color:#f59e0b">${stats.pendingCount}</div><div class="l">待确认</div></div>
+      <div class="stat"><div class="n">${money(stats.totalRecharge)}</div><div class="l">累计到账(含赠送)</div></div>
+      <div class="stat"><div class="n">${money(stats.totalBonus)}</div><div class="l">赠送总额</div></div>
+      <div class="stat"><div class="n">${stats.memberCount}</div><div class="l">会员数</div></div>
+      <div class="stat"><div class="n">${money(stats.totalBalance)}</div><div class="l">会员总余额</div></div>
+      <div class="stat"><div class="n">${stats.billCount}</div><div class="l">流水条数</div></div>
+    </div>
+
+    <div class="card">
+      <div class="row between" style="margin-bottom:12px">
+        <div style="font-weight:700">💳 充值套餐（${plans.length} 个）</div>
+        <button class="btn sm" id="addPlan">+ 新增套餐</button>
+      </div>
+      ${plans.length ? `<table><thead><tr><th>名称</th><th>充值额</th><th>赠送</th><th>排序</th><th>状态</th><th>操作</th></tr></thead><tbody>
+        ${plans.map(p => `<tr>
+          <td>${p.name}</td><td>${money(p.amount)}</td><td>${p.bonus ? money(p.bonus) : '—'}</td>
+          <td>${p.sort}</td>
+          <td>${p.enabled ? '<span class="tag done">启用</span>' : '<span class="tag wait">停用</span>'}</td>
+          <td>
+            <button class="btn sm ghost" onclick="editPlan('${p.id}')">编辑</button>
+            <button class="btn sm ${p.enabled ? '' : 'blue'}" onclick="togglePlan('${p.id}')">${p.enabled ? '停用' : '启用'}</button>
+            <button class="btn sm ghost" onclick="delPlan('${p.id}')">删除</button>
+          </td></tr>`).join('')}
+      </tbody></table>` : '<div class="empty">暂无套餐，点击右上角新增</div>'}
+    </div>
+
+    <div class="card">
+      <div style="font-weight:700;margin-bottom:12px">🧾 充值订单</div>
+      <table><thead><tr><th>单号</th><th>用户</th><th>手机号</th><th>金额</th><th>赠送</th><th>方式</th><th>状态</th><th>操作</th></tr></thead><tbody>
+        ${recharges.length ? recharges.map(r => `<tr>
+          <td>${r.id}</td><td>${r.userName}</td><td class="small">${r.userPhone}</td>
+          <td>${money(r.amount)}</td><td>${r.bonus ? money(r.bonus) : '—'}</td>
+          <td>${payLabel(r.method)}</td>
+          <td>${r.status === 'paid' ? '<span class="tag done">已到账</span>' : '<span class="tag wait">待确认</span>'}</td>
+          <td>${r.status !== 'paid' ? `<button class="btn sm green" onclick="confirmRecharge('${r.id}')">确认到账</button>` : '<span class="small muted">—</span>'}</td>
+        </tr>`).join('') : '<tr><td colspan="8"><div class="empty">暂无充值订单</div></td></tr>'}
+      </tbody></table>
+    </div>
+
+    <div class="card">
+      <div style="font-weight:700;margin-bottom:12px">👥 会员余额管理</div>
+      <table><thead><tr><th>会员</th><th>手机号</th><th>当前余额</th><th>操作</th></tr></thead><tbody>
+        ${users.map(u => `<tr>
+          <td>${u.name}</td><td class="small">${u.phone}</td>
+          <td>${money(u.balance || 0)}</td>
+          <td><button class="btn sm blue" onclick="adjustBalance('${u.id}','${esc(u.name)}',${u.balance || 0})">调整余额</button></td>
+        </tr>`).join('')}
+      </tbody></table>
+    </div>`;
+  document.getElementById('addPlan').onclick = () => openPlanModal(null);
+}
+
+function openPlanModal(p) {
+  const m = document.createElement('div'); m.className = 'mask';
+  m.innerHTML = `<div class="modal"><h3>${p ? '编辑套餐' : '新增充值套餐'}</h3>
+    <div class="field"><label>套餐名称</label><input id="f_name" value="${p ? p.name : ''}" placeholder="如 充值 ¥100"></div>
+    <div class="field"><label>充值金额（元）</label><input id="f_amount" type="number" min="1" value="${p ? p.amount : ''}"></div>
+    <div class="field"><label>赠送金额（元，可填 0）</label><input id="f_bonus" type="number" min="0" value="${p ? p.bonus : 0}"></div>
+    <div class="field"><label>排序值（越小越靠前）</label><input id="f_sort" type="number" value="${p ? p.sort : 99}"></div>
+    <label style="font-size:13px"><input type="checkbox" id="f_on" ${p ? (p.enabled ? 'checked' : '') : 'checked'}> 立即启用</label>
+    <button class="btn" id="save" style="margin-top:14px">保存</button>
+    <button class="btn ghost" style="margin-top:8px;width:100%" onclick="this.closest('.mask').remove()">取消</button>
+  </div>`;
+  document.body.appendChild(m);
+  m.querySelector('#save').onclick = async () => {
+    const body = { name: m.querySelector('#f_name').value.trim(), amount: +m.querySelector('#f_amount').value,
+      bonus: +(m.querySelector('#f_bonus').value || 0), sort: +m.querySelector('#f_sort').value || 99, enabled: m.querySelector('#f_on').checked };
+    if (!body.name || !body.amount) return toast('请填写完整');
+    try {
+      if (p) await api('/admin/recharge/plans/' + p.id, { method: 'PUT', body });
+      else await api('/admin/recharge/plans', { method: 'POST', body });
+      toast('已保存'); m.remove(); loadRecharge();
+    } catch (e) { toast(e.message); }
+  };
+}
+window.editPlan = async (id) => { const p = (await api('/admin/recharge/plans')).find(x => x.id === id); openPlanModal(p); };
+window.togglePlan = async (id) => { await api('/admin/recharge/plans/' + id + '/toggle', { method: 'POST' }); toast('已更新'); loadRecharge(); };
+window.delPlan = async (id) => { if (!confirm('确认删除该套餐？')) return; await api('/admin/recharge/plans/' + id, { method: 'DELETE' }); toast('已删除'); loadRecharge(); };
+window.confirmRecharge = async (id) => {
+  if (!confirm('确认该笔充值已到账，并计入会员余额？')) return;
+  try { await api('/admin/recharges/' + id + '/confirm', { method: 'POST' }); toast('已确认到账'); loadRecharge(); }
+  catch (e) { toast(e.message); }
+};
+window.adjustBalance = (id, name, cur) => {
+  const m = document.createElement('div'); m.className = 'mask';
+  m.innerHTML = `<div class="modal"><h3>调整余额 · ${esc(name)}</h3>
+    <div class="small muted" style="margin-bottom:10px">当前余额：${money(cur)}</div>
+    <div class="field"><label>调整金额（正数增加 / 负数扣减）</label><input id="f_delta" type="number" placeholder="如 50 或 -20"></div>
+    <div class="field"><label>备注</label><input id="f_remark" value="后台调整"></div>
+    <button class="btn" id="save" style="margin-top:14px">确认调整</button>
+    <button class="btn ghost" style="margin-top:8px;width:100%" onclick="this.closest('.mask').remove()">取消</button>
+  </div>`;
+  document.body.appendChild(m);
+  m.querySelector('#save').onclick = async () => {
+    const delta = +m.querySelector('#f_delta').value;
+    if (!delta) return toast('请输入调整金额');
+    try {
+      await api('/admin/users/' + id + '/balance', { method: 'POST', body: { delta, remark: m.querySelector('#f_remark').value } });
+      toast('余额已调整'); m.remove(); loadRecharge();
+    } catch (e) { toast(e.message); }
+  };
+};
+
+/* ===== 收款账户配置 ===== */
+function payLabel(m) { return m === 'wechat' ? '微信' : m === 'alipay' ? '支付宝' : m === 'bank' ? '银行卡' : '—'; }
+const PAYEE_TYPES = ['wechat', 'alipay', 'bank'];
+// 已上传收款码 URL（上传后实时更新，保存时随账户一并提交）
+const qrVal = {};
+async function loadPayees() {
+  const p = await api('/admin/payees');
+  PAYEE_TYPES.forEach(k => { qrVal[k] = p[k].qr || ''; });
+  const defs = [
+    { k: 'wechat', label: '微信收款', icon: '💚', fields: [['name', '收款展示名称（店铺 / 昵称）'], ['account', '微信收款账号 / 微信号'], ['qr', '微信收款码']] },
+    { k: 'alipay', label: '支付宝收款', icon: '🔵', fields: [['name', '收款展示名称（店铺 / 实名）'], ['account', '支付宝账号'], ['qr', '支付宝收款码']] },
+    { k: 'bank', label: '银行卡收款', icon: '🏦', fields: [['name', '持卡人姓名'], ['bankName', '开户银行'], ['account', '银行卡号'], ['qr', '收款码 / 转账凭证（可选）']] }
+  ];
+  panel.innerHTML =
+    `<div class="hint" style="margin-bottom:12px">配置后，会员在「充值中心」选择对应方式时，将看到这里的收款码与账号并完成支付。收款码直接上传图片即可，无需填写图片地址。会员提交后，请在「余额充值 → 充值订单」中点击「确认到账」计入余额。</div>` +
+    defs.map(d => {
+      const c = p[d.k];
+      return `<div class="card">
+        <div class="row between" style="margin-bottom:10px">
+          <div style="font-weight:700">${d.icon} ${d.label}</div>
+          <label style="font-size:13px"><input type="checkbox" id="en_${d.k}" ${c.enabled ? 'checked' : ''}> 启用</label>
+        </div>
+        ${d.fields.map(f => {
+          if (f[0] === 'qr') {
+            return `<div class="field"><label>${f[1]}</label>
+              <input type="file" accept="image/*" id="${d.k}_qr_file" class="qr-file">
+              <div class="qr-preview" id="${d.k}_qr_prev">${(c.qr ? qrPreviewHtml(d.k, c.qr) : '<span class="hint">尚未上传收款码，点击下方选择图片</span>')}</div>
+            </div>`;
+          }
+          return `<div class="field"><label>${f[1]}</label><input id="${d.k}_${f[0]}" value="${esc(c[f[0]] || '')}"></div>`;
+        }).join('')}
+      </div>`;
+    }).join('') +
+    `<button class="btn blue" style="width:100%" id="savePayees">保存收款账户</button>`;
+
+  // 绑定上传事件
+  defs.forEach(d => {
+    const fileInput = document.getElementById(d.k + '_qr_file');
+    if (fileInput) fileInput.onchange = async (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      if (file.size > 3 * 1024 * 1024) return toast('图片需小于 3MB');
+      try {
+        toast('收款码上传中…');
+        const url = await uploadQr(d.k, file);
+        qrVal[d.k] = url;
+        const prev = document.getElementById(d.k + '_qr_prev');
+        if (prev) prev.innerHTML = qrPreviewHtml(d.k, url);
+        toast('收款码已上传 ✓');
+      } catch (err) { toast(err.message || '上传失败'); }
+    };
+  });
+  document.getElementById('savePayees').onclick = async () => {
+    const body = {};
+    defs.forEach(d => {
+      const o = { enabled: document.getElementById('en_' + d.k).checked };
+      d.fields.forEach(f => {
+        if (f[0] === 'qr') o.qr = qrVal[d.k];
+        else o[f[0]] = document.getElementById(d.k + '_' + f[0]).value.trim();
+      });
+      body[d.k] = o;
+    });
+    try { await api('/admin/payees', { method: 'PUT', body }); toast('已保存 ✓'); loadPayees(); }
+    catch (e) { toast(e.message); }
+  };
+}
+function qrPreviewHtml(k, url) {
+  return `<img src="${esc(url)}" style="max-width:140px;max-height:140px;border-radius:8px;border:1px solid var(--line)" onerror="this.style.display='none'">
+    <div style="margin-top:6px"><button type="button" class="btn sm ghost" onclick="clearQr('${k}')">移除并重新上传</button></div>`;
+}
+window.clearQr = (k) => { qrVal[k] = ''; const prev = document.getElementById(k + '_qr_prev'); if (prev) prev.innerHTML = '<span class="hint">尚未上传收款码，点击下方选择图片</span>'; };
+function uploadQr(type, file) {
+  return fetch('/api/admin/payees/upload', {
+    method: 'POST',
+    headers: { 'x-admin-key': KEY(), 'x-payee-type': type },
+    body: file
+  }).then(r => r.json()).then(j => {
+    if (j.code !== 0) throw new Error(j.msg || '上传失败');
+    return j.data.url;
+  });
+}
+
+/* ===== 数据统计 ===== */
+async function loadStats() {
+  const s = await api('/admin/stats');
+  panel.innerHTML = `<div class="grid">
+    <div class="stat"><div class="n">${s.productCount}</div><div class="l">商品总数</div></div>
+    <div class="stat"><div class="n">${s.userCount}</div><div class="l">注册用户</div></div>
+    <div class="stat"><div class="n">${s.orderCount}</div><div class="l">订单总数</div></div>
+    <div class="stat"><div class="n">${s.totalSharesSold}</div><div class="l">已售份数</div></div>
+    <div class="stat"><div class="n">${money(s.grossAmount)}</div><div class="l">累计销售额</div></div>
+    <div class="stat"><div class="n">${s.drawnCount}</div><div class="l">已开奖商品</div></div>
+    <div class="stat"><div class="n">${s.shippedCount}</div><div class="l">已发货</div></div>
+  </div>`;
+}
+</script>
+</body>
+</html>

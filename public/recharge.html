@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>充值中心</title>
+<link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+<div class="topbar">
+  <div class="title">💰 充值中心</div>
+  <div class="sub" onclick="location.href='/mine.html'" style="cursor:pointer">我的 ›</div>
+</div>
+
+<div class="rz-balance">
+  <div class="small">当前余额（元）</div>
+  <div class="bal" id="bal">¥0.00</div>
+  <div class="small muted" style="margin-top:4px">余额可用于参与任意抽奖，支付更便捷</div>
+</div>
+
+<!-- 提交成功提示 -->
+<div class="rz-result" id="result" style="display:none">
+  <div class="ok-ic">✅</div>
+  <div class="ok-t">充值申请已提交</div>
+  <div class="ok-d" id="resultDesc"></div>
+  <button class="btn ghost sm" onclick="document.getElementById('result').style.display='none'">知道了</button>
+</div>
+
+<div class="wrap">
+  <div class="sec-t">选择充值金额</div>
+  <div class="rz-plans" id="plans"></div>
+
+  <div class="sec-t">自定义金额</div>
+  <div class="rz-custom">
+    <span class="pre">¥</span>
+    <input id="customAmt" type="number" inputmode="decimal" placeholder="输入充值金额" min="1">
+  </div>
+
+  <div class="sec-t">支付方式（请选择后向商家对应账户付款）</div>
+  <div class="rz-pay" id="paySel"></div>
+
+  <!-- 选中方式后展示商家收款码 / 账号 -->
+  <div class="rz-payee" id="payeeBox"></div>
+
+  <button class="btn primary block" id="doRecharge">我已支付，提交充值</button>
+  <div class="rz-note">提交后请等待商家确认到账，确认后余额自动增加，可在「我的 → 账单流水」查看。</div>
+
+  <div class="sec-t" style="margin-top:22px">充值记录</div>
+  <div id="records"></div>
+</div>
+
+<nav class="tabbar">
+  <a href="/"><span class="ic">🏠</span>首页</a>
+  <a href="/mine.html"><span class="ic">👤</span>我的</a>
+</nav>
+
+<script src="/js/common.js"></script>
+<script>
+const PAY_ICON = { wechat: '💚', alipay: '🔵', bank: '🏦' };
+const PAY_LABEL = { wechat: '微信', alipay: '支付宝', bank: '银行卡' };
+function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
+
+let user = null, selPlan = null, selMethod = '', payees = [];
+
+/* 加载商户收款账户并渲染支付方式 */
+async function loadPayees() {
+  payees = await api('/payees');
+  const box = document.getElementById('paySel');
+  if (!payees.length) {
+    box.innerHTML = '<div class="small muted">商家暂未配置收款方式，请联系客服</div>';
+    return;
+  }
+  box.innerHTML = payees.map(p => `<div class="pp" data-m="${p.method}">
+      <span class="pic">${PAY_ICON[p.method]}</span>
+      <div><div style="font-weight:700">${p.label}</div>
+      <div class="small muted">${p.account ? ('账号 ' + p.account.slice(0, 6) + '…') : '扫码支付'}</div></div>
+    </div>`).join('');
+  box.onclick = (e) => {
+    const el = e.target.closest('.pp'); if (!el) return;
+    [...box.querySelectorAll('.pp')].forEach(x => x.classList.remove('active'));
+    el.classList.add('active'); selMethod = el.dataset.m; renderPayee();
+  };
+  const first = box.querySelector('.pp');
+  first.classList.add('active'); selMethod = first.dataset.m;
+  renderPayee();
+}
+
+/* 展示当前选中方式的商家收款码 / 账号 */
+function renderPayee() {
+  const box = document.getElementById('payeeBox');
+  const p = payees.find(x => x.method === selMethod);
+  if (!p) { box.innerHTML = ''; return; }
+  const rows = [];
+  if (p.name) rows.push(['收款方', p.name]);
+  if (p.method === 'bank') {
+    if (p.bankName) rows.push(['开户行', p.bankName]);
+    if (p.holder) rows.push(['持卡人', p.holder]);
+  }
+  if (p.account) rows.push(['收款账号', p.account]);
+  box.innerHTML = `<div class="payee-card">
+    ${p.qr ? `<img class="qr" src="${esc(p.qr)}" alt="收款码" onerror="this.style.display='none'">` : ''}
+    <div class="payee-tip">请用${p.label}扫描上方二维码，或向以下账户转账<br>转账金额以您选择的充值金额为准</div>
+    ${rows.map(r => `<div class="pay-row"><span>${r[0]}</span><b>${esc(r[1])}</b></div>`).join('')}
+    ${!p.qr && !p.account ? `<div class="pay-warn">商家收款信息暂未完善，请先联系商家</div>` : ''}
+  </div>`;
+}
+
+function renderPlans(list) {
+  const box = document.getElementById('plans');
+  if (!list.length) { box.innerHTML = '<div class="small muted">暂无可用套餐</div>'; return; }
+  box.innerHTML = list.map(p => `<div class="rz-plan" data-id="${p.id}" data-amt="${p.amount}" data-bonus="${p.bonus}">
+      <div class="pa">¥${p.amount}</div>
+      ${p.bonus ? `<div class="pb">送 ¥${p.bonus}</div>` : '<div class="pb muted">无赠送</div>'}
+      <div class="pn">${p.name}</div>
+    </div>`).join('');
+  box.onclick = (e) => {
+    const el = e.target.closest('.rz-plan'); if (!el) return;
+    [...box.querySelectorAll('.rz-plan')].forEach(x => x.classList.remove('active'));
+    el.classList.add('active'); selPlan = el.dataset.id;
+    document.getElementById('customAmt').value = '';
+  };
+}
+
+document.getElementById('customAmt').addEventListener('input', () => {
+  selPlan = null;
+  document.querySelectorAll('#plans .rz-plan').forEach(x => x.classList.remove('active'));
+});
+
+document.getElementById('doRecharge').onclick = async () => {
+  if (!selMethod) return toast('请选择支付方式');
+  const custom = parseFloat(document.getElementById('customAmt').value);
+  let body;
+  if (selPlan) body = { userId: user.id, planId: selPlan, method: selMethod };
+  else if (custom && custom >= 1) body = { userId: user.id, amount: custom, method: selMethod };
+  else return toast('请选择或输入充值金额');
+  try {
+    const r = await api('/recharge', { method: 'POST', body });
+    const rec = r.recharge;
+    document.getElementById('resultDesc').innerHTML =
+      `充值金额 <b>${money(rec.amount)}</b>（${PAY_LABEL[rec.method]}）已提交。<br>请确认您已向商家对应账户完成支付，商家确认到账后余额自动增加。`;
+    document.getElementById('result').style.display = 'block';
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+    selPlan = null; document.getElementById('customAmt').value = '';
+    document.querySelectorAll('#plans .rz-plan').forEach(x => x.classList.remove('active'));
+    loadRecords();
+  } catch (e) { toast(e.message); }
+};
+
+async function loadRecords() {
+  const list = await api('/my/recharges?userId=' + user.id);
+  document.getElementById('records').innerHTML = list.length
+    ? `<div class="card" style="padding:8px 0"><ul class="list">${list.map(r => `<li>
+        <div><div style="font-weight:600">${money(r.amount)} 充值${r.bonus ? ` · 送${money(r.bonus)}` : ''}</div>
+        <div class="small muted">${fmtTime(r.createdAt)} · ${PAY_LABEL[r.method] || r.method}</div></div>
+        <div style="font-weight:800;${r.status === 'paid' ? 'color:#19a974' : 'color:#f59e0b'}">${r.status === 'paid' ? ('+' + money(r.gift)) : '待确认'}</div></li>`).join('')}</ul></div>`
+    : '<div class="empty"><span class="em">🧾</span>暂无充值记录</div>';
+}
+
+(async function () {
+  try {
+    user = await ensureLogin();
+    document.getElementById('bal').textContent = money(user.balance || 0);
+    renderPlans(await api('/recharge/plans'));
+    await loadPayees();
+    loadRecords();
+  } catch (e) { toast(e.message); }
+})();
+</script>
+</body>
+</html>

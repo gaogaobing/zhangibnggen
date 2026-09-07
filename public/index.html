@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>幸运商城</title>
+<link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+<div class="topbar">
+  <div class="title">🎉 幸运商城</div>
+  <div class="sub" id="hello">未登录</div>
+</div>
+
+<!-- 公告条（后台可配置） -->
+<div class="notice" id="notice" style="display:none">
+  <span class="ic">📢</span><span class="txt" id="noticeTxt"></span>
+</div>
+
+<!-- 轮播（数据来自后台「首页管理」） -->
+<div class="banner" id="banner">
+  <div class="banner-track" id="track"></div>
+  <div class="dots" id="dots"></div>
+</div>
+
+<!-- 分类筛选 -->
+<div class="chips" id="chips">
+  <button class="chip on" data-f="all">全部</button>
+  <button class="chip" data-f="进行中">进行中</button>
+  <button class="chip" data-f="待开售">待开售</button>
+  <button class="chip" data-f="已开奖">已开奖</button>
+</div>
+
+<div class="sec-title"><i class="bar"></i>🔥 热门抽奖<span class="more" id="count"></span></div>
+
+<div id="list"></div>
+
+<nav class="tabbar">
+  <a href="/" class="active"><span class="ic">🏠</span>首页</a>
+  <a href="/mine.html"><span class="ic">👤</span>我的</a>
+</nav>
+
+<script src="/js/common.js"></script>
+<script>
+/* ---------- 轮播 ---------- */
+const FALLBACK = [
+  { title: '新人专享 首单立减', subtitle: '注册即领 5 元无门槛参与券', btnText: '立即领取 →', emoji: '🎁', bg: 'linear-gradient(120deg,#ff6b6b,#ff9a44)', link: '/mine.html' },
+  { title: '幸运抽奖 100% 必中', subtitle: '每期必出一位中奖者，公平公正', btnText: '去看看 →', emoji: '🎉', bg: 'linear-gradient(120deg,#7c5cff,#4facfe)', link: '/' },
+  { title: '邀请好友 赢好礼', subtitle: '好友参与你得奖励，上不封顶', btnText: '邀请好友 →', emoji: '👫', bg: 'linear-gradient(120deg,#11998e,#38ef7d)', link: '/mine.html' }
+];
+const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+let cur = 0, timer = null, slides = [];
+let go = () => {};
+
+function initBanner(list) {
+  slides = list;
+  const track = document.getElementById('track');
+  const dotsBox = document.getElementById('dots');
+  const len = list.length;
+
+  track.innerHTML = list.map(b => `<div class="slide" style="background:${b.bg}" data-link="${esc(b.link || '/')}">
+      <div class="txt">
+        <div class="t1">${esc(b.title)}</div>
+        <div class="t2">${esc(b.subtitle)}</div>
+        ${b.btnText ? `<div class="pill">${esc(b.btnText)}</div>` : ''}
+      </div>
+      <div class="emo">${esc(b.emoji || '🎁')}</div>
+    </div>`).join('');
+  dotsBox.innerHTML = len > 1 ? '<i></i>'.repeat(len) : '';
+
+  const dots = dotsBox.children;
+  go = (i) => {
+    cur = (i + len) % len;
+    track.style.transform = 'translateX(' + (-cur * 100) + '%)';
+    for (let k = 0; k < dots.length; k++) dots[k].className = k === cur ? 'on' : '';
+  };
+  go(0);
+}
+
+function play(ms) {
+  if (timer) clearInterval(timer);
+  if (slides.length <= 1) return;
+  timer = setInterval(() => go(cur + 1), ms || 3500);
+}
+function stop() { if (timer) clearInterval(timer); }
+
+// 滑动切屏 + 点击跳转
+(function () {
+  const b = document.getElementById('banner');
+  let sx = 0, sy = 0, swiped = false;
+  b.addEventListener('touchstart', (e) => {
+    sx = e.touches[0].clientX; sy = e.touches[0].clientY; swiped = false; stop();
+  }, { passive: true });
+  b.addEventListener('touchmove', (e) => {
+    if (Math.abs(e.touches[0].clientX - sx) > 40) swiped = true;
+  }, { passive: true });
+  b.addEventListener('touchend', (e) => {
+    const dx = e.changedTouches[0].clientX - sx, dy = e.changedTouches[0].clientY - sy;
+    if (Math.abs(dx) > 40 && Math.abs(dx) > Math.abs(dy)) go(cur + (dx < 0 ? 1 : -1));
+    else play();
+  }, { passive: true });
+  b.addEventListener('click', () => {
+    if (swiped) { swiped = false; return; }   // 刚滑动过，不触发跳转
+    const link = slides[cur] && slides[cur].link;
+    if (link) location.href = link;
+  });
+  document.addEventListener('visibilitychange', () => document.hidden ? stop() : play());
+})();
+
+/* ---------- 商品列表 ---------- */
+let all = [];
+const GRAD = ['g1', 'g2', 'g3', 'g4'];
+
+function render(list) {
+  const box = document.getElementById('list');
+  document.getElementById('count').textContent = '共 ' + list.length + ' 件';
+  if (!list.length) { box.innerHTML = '<div class="empty"><span class="em">🎁</span>暂无相关商品</div>'; return; }
+  box.innerHTML = list.map((p, i) => {
+    const pct = p.totalShares ? Math.round(p.soldShares / p.totalShares * 100) : 0;
+    let cta, cls;
+    if (p.status === '进行中') { cta = '参与'; cls = ''; }
+    else if (p.status === '待开售') { cta = '未开售'; cls = 'off'; }
+    else { cta = '看开奖'; cls = 'done'; }
+    return `<a class="pcard" href="/detail.html?id=${p.id}" style="animation-delay:${i * 60}ms">
+      <div class="pcard-thumb ${GRAD[i % 4]}">${p.image || '🎁'}</div>
+      <div class="pcard-body">
+        <div class="pcard-title">${p.name} ${statusTag(p.status)}</div>
+        <div class="pcard-price"><span class="cur">¥</span>${p.pricePerShare}<span class="unit">/份</span></div>
+        <div class="prog"><i style="width:${pct}%"></i></div>
+        <div class="pcard-meta">
+          <span>总 <b>${p.totalShares}</b></span>
+          <span>已售 <b>${p.soldShares}</b></span>
+          <span>剩 <b class="left">${p.remainShares}</b></span>
+        </div>
+      </div>
+      <div class="pcard-cta ${cls}">${cta}</div>
+    </a>`;
+  }).join('');
+}
+
+document.getElementById('chips').addEventListener('click', (e) => {
+  const c = e.target.closest('.chip'); if (!c) return;
+  [...document.querySelectorAll('.chip')].forEach(x => x.classList.remove('on'));
+  c.classList.add('on');
+  const f = c.dataset.f;
+  render(f === 'all' ? all : all.filter(p => p.status === f));
+});
+
+(async function () {
+  const uid = getUID();
+  if (uid) { try { const u = await api('/users/' + uid); document.getElementById('hello').textContent = 'Hi, ' + maskName(u.name); } catch (e) {} }
+
+  // 首页配置：公告 + 轮播（失败则回退到内置轮播，避免白屏）
+  let interval = 3500;
+  try {
+    const s = await api('/settings');
+    interval = s.bannerInterval || 3500;
+    if (s.noticeEnabled && s.notice) {
+      const n = document.getElementById('notice');
+      document.getElementById('noticeTxt').textContent = s.notice;
+      n.style.display = 'flex';
+    }
+  } catch (e) {}
+  let banners = [];
+  try { banners = await api('/banners'); } catch (e) {}
+  initBanner(banners.length ? banners : FALLBACK);
+  play(interval);
+
+  try { all = await api('/products'); render(all); } catch (e) { toast(e.message); }
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>参与购买</title>
+<link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+<div class="topbar">
+  <div class="title">← 参与购买</div>
+  <div class="sub">支付即抽奖</div>
+</div>
+<div id="app"></div>
+
+<script src="/js/common.js"></script>
+<script>
+const id = new URLSearchParams(location.search).get('id');
+let product = null, shares = 1, user = null, payMethod = '';
+const GRAD = ['g1', 'g2', 'g3', 'g4'];
+
+(async function () {
+  try {
+    product = await api('/products/' + id);
+    user = await ensureLogin();
+    const max = product.remainShares;
+    const total0 = product.pricePerShare;
+    const canBalance = (user.balance || 0) >= total0;
+    payMethod = canBalance ? 'balance' : 'cash';
+    const pct = Math.round(product.soldShares / product.totalShares * 100);
+    document.getElementById('app').innerHTML = `
+      <div class="card">
+        <div class="row" style="gap:12px">
+          <div class="pcard-thumb ${GRAD[0]}" style="width:64px;height:64px;font-size:32px">${product.image || '🎁'}</div>
+          <div style="flex:1;min-width:0">
+            <div style="font-weight:800;font-size:15px">${product.name}</div>
+            <div class="pcard-price"><span class="cur">¥</span>${product.pricePerShare}<span class="unit">/份</span></div>
+            <div class="small muted" style="margin-top:4px">剩余 ${product.remainShares} / ${product.totalShares} 份</div>
+          </div>
+        </div>
+        <div class="prog"><i style="width:${pct}%"></i></div>
+      </div>
+
+      <div class="card">
+        <div style="font-weight:800;margin-bottom:12px">选择参与份数</div>
+        <div class="row between" style="gap:12px">
+          <button class="stepper" id="minus">−</button>
+          <input id="shares" type="number" min="1" max="${max}" value="1"
+            style="flex:1;text-align:center;font-size:20px;font-weight:800;border:1.5px solid var(--line);border-radius:10px;padding:8px;background:#fafbfd;outline:none">
+          <button class="stepper" id="plus">＋</button>
+        </div>
+        <div class="quick" id="quick">
+          <button data-v="1">1 份</button>
+          <button data-v="5">5 份</button>
+          <button data-v="10">10 份</button>
+          <button data-v="${max}">全包 ${max} 份</button>
+        </div>
+        <div class="row between" style="margin-top:18px;padding-top:14px;border-top:1px dashed var(--line)">
+          <span class="muted small">应付合计</span>
+          <span class="pcard-price" id="total" style="font-size:24px">¥${total0}</span>
+        </div>
+        <div class="small muted" style="text-align:center;margin-top:6px">买得越多，中奖概率越高（1 份 = 1 个抽奖码）</div>
+      </div>
+
+      <div class="card">
+        <div style="font-weight:800;margin-bottom:10px">支付方式</div>
+        <div class="rz-pay" id="payMethods">
+          <div class="pp ${canBalance ? 'active' : ''}" data-m="balance" id="pmBalance">
+            <span class="pic">💰</span>
+            <div><div style="font-weight:700">余额支付</div><div class="small muted">可用 ${money(user.balance || 0)}</div></div>
+          </div>
+          <div class="pp ${canBalance ? '' : 'active'}" data-m="cash">
+            <span class="pic">💳</span>
+            <div><div style="font-weight:700">微信 / 支付宝</div><div class="small muted">在线支付</div></div>
+          </div>
+        </div>
+        <div id="balTip" class="small" style="margin-top:8px;display:none;color:var(--primary)"></div>
+      </div>
+
+      <div style="padding:0 12px 20px">
+        <button class="btn" id="pay">确认支付 <span id="payAmt"></span></button>
+        <div class="small muted" style="text-align:center;margin-top:10px">支付成功后系统随机发放抽奖码，份额售罄自动开奖</div>
+      </div>`;
+
+    const inp = document.getElementById('shares');
+    const clamp = (v) => { v = parseInt(v, 10) || 1; if (v < 1) v = 1; if (v > max) v = max; return v; };
+    const sync = () => {
+      shares = clamp(inp.value); inp.value = shares;
+      const total = shares * product.pricePerShare;
+      document.getElementById('total').textContent = money(total);
+      document.getElementById('payAmt').textContent = money(total);
+      [...document.querySelectorAll('#quick button')].forEach(b => b.classList.toggle('on', +b.dataset.v === shares));
+      const pmB = document.getElementById('pmBalance');
+      const balOk = (user.balance || 0) >= total;
+      if (!balOk) { pmB.style.opacity = .5; pmB.style.pointerEvents = 'none'; if (payMethod === 'balance') { payMethod = 'cash'; selectPay('cash'); } }
+      else { pmB.style.opacity = 1; pmB.style.pointerEvents = ''; }
+      const tip = document.getElementById('balTip');
+      if (payMethod === 'balance' && !balOk) tip.style.display = 'block', tip.textContent = '余额不足，已切换为在线支付，或先去充值';
+      else tip.style.display = 'none';
+    };
+    const selectPay = (m) => {
+      payMethod = m;
+      [...document.querySelectorAll('#payMethods .pp')].forEach(x => x.classList.remove('active'));
+      document.querySelector('#payMethods .pp[data-m="' + m + '"]').classList.add('active');
+    };
+    document.getElementById('payMethods').onclick = (e) => {
+      const pp = e.target.closest('.pp'); if (!pp || pp.style.pointerEvents === 'none') return;
+      selectPay(pp.dataset.m); sync();
+    };
+    document.getElementById('minus').onclick = () => { inp.value = shares - 1; sync(); };
+    document.getElementById('plus').onclick = () => { inp.value = shares + 1; sync(); };
+    inp.oninput = sync;
+    document.getElementById('quick').onclick = (e) => { const b = e.target.closest('button'); if (!b) return; inp.value = b.dataset.v; sync(); };
+    document.getElementById('pay').onclick = doPay;
+    sync();
+  } catch (e) { toast(e.message); }
+})();
+
+async function doPay() {
+  try {
+    const btn = document.getElementById('pay'); btn.disabled = true; btn.textContent = '支付中…';
+    await new Promise(r => setTimeout(r, 500));
+    const r = await api('/orders', { method: 'POST', body: { productId: id, userId: user.id, shares, payMethod } });
+    showResult(r);
+  } catch (e) {
+    toast(e.message);
+    const b = document.getElementById('pay');
+    if (b) { b.disabled = false; b.innerHTML = '确认支付 <span id="payAmt">' + money(shares * product.pricePerShare) + '</span>'; }
+  }
+}
+function showResult(r) {
+  const codes = r.order.codes.map(c => `<span class="code ${r.draw && r.draw.winningCode === c ? 'win' : ''}">${c}</span>`).join('');
+  const drawHtml = r.drawn ? `<div class="win-banner" style="margin:14px 0 0">
+      <div class="small">🎊 份数已售罄，本商品已开奖</div>
+      <div class="code" style="display:inline-block;font-size:19px;margin-top:8px">${r.draw.winningCode}</div>
+      <div class="small" style="margin-top:6px">中奖用户 ${maskName(r.draw.winningUserName)}</div>
+    </div>` : '';
+  const mask = document.createElement('div');
+  mask.className = 'modal-mask';
+  mask.innerHTML = `<div class="modal">
+    <div class="success-big">
+      <div class="em">✅</div>
+      <div style="font-weight:800;font-size:17px;margin-top:8px">支付成功</div>
+      <div class="small muted" style="margin-top:4px">实付 ${money(r.order.amount)}（${payMethod === 'balance' ? '余额' : '在线'}）· 获得 ${r.order.codes.length} 个抽奖码</div>
+      <div class="codes">${codes}</div>${drawHtml}
+    </div>
+    <button class="btn" onclick="location.href='/mine.html'">查看我的抽奖码</button>
+    <button class="btn ghost" style="margin-top:8px" onclick="location.href='/'">返回首页</button>
+  </div>`;
+  document.body.appendChild(mask);
+}
+</script>
+<style>
+.stepper { width: 42px; height: 42px; border: 1.5px solid var(--line); background: #fafbfd; border-radius: 12px;
+  font-size: 22px; color: var(--primary); font-weight: 700; cursor: pointer; flex-shrink: 0; }
+.stepper:active { background: #fff1f0; }
+.quick { display: flex; gap: 8px; margin-top: 14px; flex-wrap: wrap; }
+.quick button { flex: 1; min-width: 72px; padding: 9px 4px; border: 1.5px solid var(--line); background: #fafbfd;
+  border-radius: 10px; font-size: 12px; color: #666; font-weight: 600; cursor: pointer; }
+.quick button.on { border-color: var(--primary); background: #fff1f0; color: var(--primary); }
+</style>
+</body>
+</html>
